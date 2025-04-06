@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlops-movie-rec-ingress
+spec:
+  rules:
+  - host: movie-rec.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mlops-movie-rec-service
+            port:
+              number: 80

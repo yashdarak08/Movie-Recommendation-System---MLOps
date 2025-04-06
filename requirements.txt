@@ -1,0 +1,10 @@
+# Global dependencies (if any)
+mlflow==2.0.0
+ray[tune]==2.0.0
+ray[serve]==2.0.0
+ray[default]==2.0.0
+ray[all]==2.0.0
+ray[serve]==2.0.0
+ray[air]==2.0.0
+ray[train]==2.0.0
+ray[dataset]==2.0.0

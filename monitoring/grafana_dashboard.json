@@ -1,0 +1,19 @@
+{
+    "dashboard": {
+      "id": null,
+      "title": "MLOps Movie Recommendation Monitoring",
+      "panels": [
+        {
+          "type": "graph",
+          "title": "Inference Latency",
+          "targets": [
+            {
+              "expr": "inference_latency_ms",
+              "legendFormat": "Latency"
+            }
+          ]
+        }
+      ]
+    }
+  }
+

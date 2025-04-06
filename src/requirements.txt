@@ -1,0 +1,9 @@
+numpy
+pandas
+scikit-learn
+torch
+torchvision
+mlflow
+ray[tune]
+boto3
+flask

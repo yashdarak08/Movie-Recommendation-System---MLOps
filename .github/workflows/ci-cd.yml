@@ -1,0 +1,36 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.8'
+
+    - name: Install dependencies
+      run: |
+        pip install -r src/requirements.txt
+
+    - name: Run tests (if any)
+      run: |
+        python -m unittest discover -s tests
+
+    - name: Build Docker image
+      run: |
+        cd docker
+        docker build -t mlops-movie-rec .
+
+    - name: Push Docker image
+      # Add steps to authenticate and push to your Docker registry
+      run: echo "Push Docker image steps go here"

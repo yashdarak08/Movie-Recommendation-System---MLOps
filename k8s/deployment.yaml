@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlops-movie-rec-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mlops-movie-rec
+  template:
+    metadata:
+      labels:
+        app: mlops-movie-rec
+    spec:
+      containers:
+      - name: movie-rec
+        image: yourdockerhubusername/mlops-movie-rec:latest
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        env:
+        - name: PYTHONPATH
+          value: /app/src
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app/src
+        command: ["python3", "-m", "src.main"]
+      - name: db
+        

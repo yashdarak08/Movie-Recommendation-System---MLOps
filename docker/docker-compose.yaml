@@ -1,0 +1,28 @@
+version: '3'
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../src:/app/src
+    environment:
+      - PYTHONPATH=/app/src
+    command: python3 -m src.main
+    networks:
+      - app-network
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydatabase
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+  redis:
+    image: redis:latest
+    networks:
+      - app-network
+      
