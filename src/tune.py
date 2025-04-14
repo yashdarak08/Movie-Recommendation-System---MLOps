@@ -278,3 +278,47 @@ def run_tuning(config: Dict[str, Any] = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run hyperparameter tuning")
+    parser.add_argument("--config", type=str, help="Path to config YAML file")
+    parser.add_argument("--num_samples", type=int, default=10, help="Number of trials to run")
+    parser.add_argument("--max_epochs", type=int, default=10, help="Maximum epochs per trial")
+    parser.add_argument("--model_type", type=str, choices=["mf", "ncf"], default="ncf", 
+                        help="Model type: Matrix Factorization (mf) or Neural CF (ncf)")
+    parser.add_argument("--output_path", type=str, default="ray_results", 
+                        help="Path to save tuning results")
+    
+    args = parser.parse_args()
+    
+    if args.config:
+        # Load configuration from YAML file
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+    else:
+        # Use default configuration with CLI overrides
+        config = {
+            'experiment_name': 'movie_recommender_hyperparams',
+            'num_samples': args.num_samples,
+            'max_epochs': args.max_epochs,
+            'resources_per_trial': {
+                'cpu': 2,
+                'gpu': 0.5  # Fractional GPUs supported by Ray
+            },
+            'data_path': os.path.join("..", "data", "movielens", "ml-latest-small"),
+            'output_path': args.output_path,
+            'model_type': args.model_type,
+            'search_space': {
+                'batch_size': [128, 256, 512, 1024],
+                'learning_rate': [1e-4, 3e-4, 1e-3, 3e-3],
+                'embedding_dim': [32, 64, 128],
+                'hidden_dims': [
+                    [128, 64],
+                    [256, 128, 64],
+                    [512, 256, 128]
+                ],
+                'weight_decay': [0, 1e-5, 1e-4]
+            }
+        }
+    
+    # Run hyperparameter tuning
+    best_config = run_tuning(config)
+    
+    logger.info("Hyperparameter tuning completed successfully.")
