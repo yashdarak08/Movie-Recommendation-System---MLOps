@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List
+from typing import List, Dict, Any
 
 
 class MatrixFactorizationModel(nn.Module):
@@ -238,4 +238,40 @@ class TransformerRecommender(nn.Module):
         output = self.output_layer(transformer_out)
         
         return output
+
+
+def get_model(model_type: str, config: Dict[str, Any]) -> nn.Module:
+    """
+    Get a model instance based on type and configuration.
     
+    Args:
+        model_type: Type of model ('mf', 'ncf', or 'transformer')
+        config: Model configuration dictionary
+        
+    Returns:
+        Initialized PyTorch model
+    """
+    if model_type == "mf" or model_type == "MatrixFactorizationModel":
+        return MatrixFactorizationModel(
+            num_users=config["num_users"],
+            num_items=config["num_items"],
+            embedding_dim=config.get("embedding_dim", 64)
+        )
+    elif model_type == "ncf" or model_type == "NeuralCollaborativeFiltering":
+        return NeuralCollaborativeFiltering(
+            num_users=config["num_users"],
+            num_items=config["num_items"],
+            embedding_dim=config.get("embedding_dim", 64),
+            hidden_dims=config.get("hidden_dims", [256, 128, 64])
+        )
+    elif model_type == "transformer" or model_type == "TransformerRecommender":
+        return TransformerRecommender(
+            num_users=config["num_users"],
+            num_items=config["num_items"],
+            embedding_dim=config.get("embedding_dim", 64),
+            nhead=config.get("nhead", 4),
+            num_encoder_layers=config.get("num_encoder_layers", 2),
+            dim_feedforward=config.get("dim_feedforward", 256)
+        )
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")

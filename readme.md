@@ -1,135 +1,245 @@
-# ML Operations and Systems Engineering
+# MLOps Movie Recommendation System
 
-This repository implements a production-grade, cloud-native movie recommendation system with an end-to-end MLOps pipeline.
+A production-grade, cloud-native movie recommendation system with an end-to-end MLOps pipeline. This system leverages PyTorch for training recommendation models, MLflow for experiment tracking, and provides scalable inference through Docker and Kubernetes.
+
+## Features
+
+- **Recommendation Models**: Matrix Factorization, Neural Collaborative Filtering, and Transformer-based
+- **MLOps Pipeline**: End-to-end workflow from data preparation to deployment
+- **Experiment Tracking**: Comprehensive tracking with MLflow
+- **Hyperparameter Optimization**: Distributed tuning with Ray
+- **Scalable Inference**: REST API for real-time recommendations
+- **Containerization**: Docker and Kubernetes deployment
+- **Infrastructure as Code**: AWS EC2 provisioning via Terraform
+- **CI/CD**: Continuous integration and deployment with GitHub Actions
+- **Monitoring**: Real-time metrics with Prometheus and Grafana
+
+## Project Structure
 
 ```
 project-root/
 ├── .github/
 │   └── workflows/
-│       └── ci-cd.yml
+│       └── ci-cd.yml          # CI/CD workflow definition
 ├── configs/
-│   ├── train_config.yaml
-│   ├── tune_config.yaml
-│   └── infer_config.yaml
+│   ├── train_config.yaml      # Training configuration
+│   ├── tune_config.yaml       # Hyperparameter tuning configuration
+│   └── infer_config.yaml      # Inference configuration
 ├── data/
-│   ├── download_data.sh
-│   └── movielens/
+│   ├── download_data.sh       # Script to download MovieLens datasets
+│   └── movielens/             # MovieLens datasets (after download)
 ├── docker/
-│   ├── Dockerfile
-│   └── docker-compose.yaml
+│   ├── Dockerfile             # Main Dockerfile for the application
+│   └── docker-compose.yaml    # Docker Compose configuration
 ├── infrastructure/
-│   ├── main.tf
-│   ├── variables.tf
+│   ├── main.tf                # Terraform main configuration
+│   ├── variables.tf           # Terraform variables
 │   └── db/
-│       ├── init.sql
-│       └── init.sh
+│       ├── init.sql           # Database initialization script
+│       └── init.sh            # Database init script wrapper
 ├── k8s/
-│   ├── deployment.yaml
-│   ├── ingress.yaml
-│   ├── service.yaml
-│   ├── secrets.yaml
-│   └── pvc.yaml
-├── models/
+│   ├── deployment.yaml        # Kubernetes deployment configuration
+│   ├── ingress.yaml           # Kubernetes ingress configuration
+│   ├── service.yaml           # Kubernetes service configuration
+│   ├── secrets.yaml           # Kubernetes secrets configuration
+│   └── pvc.yaml               # Kubernetes persistent volume claim
+├── models/                    # Directory for saved models
 ├── monitoring/
-│   ├── grafana_dashboard.json
-│   └── prometheus.yml
+│   ├── grafana_dashboard.json # Grafana dashboard configuration
+│   └── prometheus.yml         # Prometheus configuration
+├── scripts/
+│   └── test_api.py            # Script to test the API endpoints
 ├── src/
-│   ├── main.py
-│   ├── mlflow_tracking.py
-│   ├── models.py
-│   ├── train.py (you have this)
-│   ├── tune.py (you have this)
-│   ├── inference.py (you have this)
-│   ├── utils.py
-│   └── requirements.txt
+│   ├── main.py                # Main entry point
+│   ├── mlflow_tracking.py     # MLflow tracking utilities
+│   ├── models.py              # Model definitions
+│   ├── train.py               # Training module
+│   ├── tune.py                # Hyperparameter tuning module
+│   ├── inference.py           # Inference and serving module
+│   ├── utils.py               # Utility functions
+│   └── requirements.txt       # Python dependencies
 ├── tests/
-├── .gitignore
-├── LICENSE
-├── readme.md
-├── requirements.txt
-└── setup-directories.sh
+│   ├── unit/                  # Unit tests
+│   │   └── test_models.py     # Tests for models
+│   └── integration/           # Integration tests
+│       └── test_inference.py  # Tests for inference API
+├── .gitignore                 # Git ignore file
+├── LICENSE                    # MIT License
+├── README.md                  # This file
+├── requirements.txt           # Top-level Python dependencies
+└── setup-directories.sh       # Script to set up directory structure
 ```
 
-## Key Features
-- **MLFlow** for experiment tracking and model versioning.
-- **Terraform** for AWS EC2 infrastructure provisioning.
-- **Docker & Kubernetes** for containerization and scalable inference services.
-- **Ray** for distributed hyperparameter tuning.
-- **PyTorch** for multi-GPU training of the recommendation model.
-- **Prometheus & Grafana** for real-time monitoring.
-- **CI/CD** practices via GitHub Actions for continuous experimentation and deployment.
-- **Inference benchmarking** with custom Triton kernel integration to assess speed under different quantization levels and batch sizes.
-
-## Getting Started
+## Installation
 
 ### Prerequisites
-- AWS account with proper credentials
-- Docker & Kubernetes (e.g., Minikube for local testing)
-- Terraform installed
-- Python 3.8+
 
-### Setup
+- Python 3.8 or higher
+- Docker and Docker Compose
+- Kubernetes (optional, for production deployment)
+- Terraform (optional, for cloud deployment)
+- CUDA-compatible GPU (recommended for training)
 
-1. **Clone the repository:**
+### Setting Up the Environment
+
+1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/ML-Operations-and-Systems-Engineering.git
-   cd ML-Operations-and-Systems-Engineering
+   git clone https://github.com/yourusername/mlops-movie-recommendation.git
+   cd mlops-movie-recommendation
+   ```
 
-    ```
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-2. Download Datasets:
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Download and prepare data:
    ```bash
    cd data
    bash download_data.sh
    cd ..
+   ```
 
-    ```
+5. Set up directory structure (if needed):
+   ```bash
+   bash setup-directories.sh
+   ```
 
-3. **Provision Infrastructure with Terraform:** Navigate to the infrastructure folder and initialize/apply:
+## Usage
 
-    ```bash
-    cd infrastructure
-    terraform init
-    terraform apply
-    cd ..
-    ```
+### Training a Model
 
+1. Review and adjust the training configuration in `configs/train_config.yaml`
 
-4. **Build Docker Images:** Navigate to the `docker` folder and build the images:
+2. Run the training:
+   ```bash
+   python -m src.main --mode train --config configs/train_config.yaml
+   ```
 
-    ```bash
-    cd docker
-    docker build -t movie-recommender:latest .
-    docker build -t movie-recommender-inference:latest -f Dockerfile.inference .
-    cd ..
-    ```
+3. The trained model will be saved in the `models/` directory and tracked in MLflow
 
-5. **Run Training, Tuning, or Inference: The main script (src/main.py) serves as a CLI to run various stages:**
+### Hyperparameter Tuning
 
-    ```bash
-    python src/main.py --stage train --config configs/train_config.yaml
-    python src/main.py --stage tune --config configs/tune_config.yaml
-    python src/main.py --stage infer --config configs/infer_config.yaml
-    ```
-6. **Deploying to Kubernetes:** Use the provided Kubernetes YAML files in the `k8s` folder to deploy the inference service.
+1. Review and adjust the tuning configuration in `configs/tune_config.yaml`
 
-    ```bash
-    kubectl apply -f k8s/deployment.yaml
-    kubectl apply -f k8s/service.yaml
-    ```
+2. Run the hyperparameter tuning:
+   ```bash
+   python -m src.main --mode tune --config configs/tune_config.yaml
+   ```
 
-7. **Monitoring:** Set up Prometheus and Grafana using the provided Helm charts or YAML files in the `monitoring` folder.
+3. The best model will be saved to the `models/` directory
 
-    ```bash
-    cd monitoring
-    helm install prometheus prometheus-community/prometheus
-    helm install grafana grafana/grafana
-    cd ..
-    ```
+### Running Inference
 
-8. **CI/CD:** GitHub Actions workflows are defined in `.github/workflows/`. Modify them as per your requirements.
-   - **Continuous Experimentation:** Automatically trigger experiments on code changes or new data.
-   - **Continuous Deployment:** Deploy the latest model to production after successful tests.
-    - **Continuous Monitoring:** Monitor model performance and system metrics in real-time.
-    - **Continuous Feedback Loop:** Use monitoring data to retrain the model periodically.
-    
+1. Start the inference server:
+   ```bash
+   python -m src.inference --mode serve --config configs/infer_config.yaml
+   ```
+
+2. The API will be available at `http://localhost:8000`
+
+3. You can test the API using the provided test script:
+   ```bash
+   python scripts/test_api.py --url http://localhost:8000
+   ```
+
+### Testing the Inference API
+
+The API exposes the following endpoints:
+
+- `GET /health` - Health check endpoint
+- `POST /predict` - Predict rating for a single user-item pair
+- `POST /batch_predict` - Predict ratings for multiple user-item pairs
+- `POST /recommend` - Get personalized recommendations for a user
+
+Example API request with curl:
+```bash
+curl -X POST http://localhost:8000/recommend \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 1, "top_k": 5}'
+```
+
+### Benchmarking Inference Performance
+
+To benchmark the inference performance with different batch sizes:
+
+```bash
+python -m src.inference --mode benchmark --config configs/infer_config.yaml
+```
+
+Results will be saved to `benchmark_results.json`.
+
+## Deployment
+
+### Using Docker Compose
+
+1. Build and start the containers:
+   ```bash
+   cd docker
+   docker-compose up -d
+   ```
+
+2. The services will be available at:
+   - Recommendation API: http://localhost:8000
+   - MLflow: http://localhost:5000
+   - Prometheus: http://localhost:9090
+   - Grafana: http://localhost:3000
+
+### Deploying to Kubernetes
+
+1. Apply the Kubernetes configurations:
+   ```bash
+   kubectl apply -f k8s/pvc.yaml
+   kubectl apply -f k8s/secrets.yaml
+   kubectl apply -f k8s/deployment.yaml
+   kubectl apply -f k8s/service.yaml
+   kubectl apply -f k8s/ingress.yaml
+   ```
+
+2. Check the deployment status:
+   ```bash
+   kubectl get pods
+   kubectl get services
+   ```
+
+### Deploying to AWS with Terraform
+
+1. Initialize Terraform:
+   ```bash
+   cd infrastructure
+   terraform init
+   ```
+
+2. Apply the Terraform configuration:
+   ```bash
+   terraform apply
+   ```
+
+3. After deployment, Terraform will output the EC2 instance IP address.
+
+## CI/CD Pipeline
+
+The repository includes a GitHub Actions workflow in `.github/workflows/ci-cd.yml` that:
+
+1. Runs linting and tests
+2. Builds a Docker image
+3. Trains and evaluates models (on selected branches)
+4. Deploys to development or production environments (manual trigger)
+
+## Monitoring
+
+The system includes monitoring with Prometheus and Grafana:
+
+1. Prometheus metrics are exposed at `http://localhost:8001/metrics`
+2. Grafana dashboard is available at `http://localhost:3000`
+   - Default credentials: admin/admin
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

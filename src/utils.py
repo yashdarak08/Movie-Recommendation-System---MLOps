@@ -2,7 +2,10 @@ import pandas as pd
 import os
 import logging
 import numpy as np
+import random
+import torch
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 from typing import Dict, List, Tuple, Union, Any
 
 
@@ -41,6 +44,63 @@ def setup_logger(name: str, level=logging.INFO) -> logging.Logger:
 
 # Create logger for this module
 logger = setup_logger(__name__)
+
+
+def setup_logging(level_name: str = "INFO") -> None:
+    """
+    Set up root logger configuration.
+    
+    Args:
+        level_name: Logging level name (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    """
+    level = getattr(logging, level_name)
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler()
+        ]
+    )
+
+
+def set_seed(seed: int) -> None:
+    """
+    Set random seed for reproducibility.
+    
+    Args:
+        seed: Random seed
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def calculate_metrics(predictions: np.ndarray, labels: np.ndarray) -> Dict[str, float]:
+    """
+    Calculate evaluation metrics for recommendation model.
+    
+    Args:
+        predictions: Predicted ratings
+        labels: Ground truth ratings
+        
+    Returns:
+        Dictionary of metrics (RMSE, MAE)
+    """
+    # Calculate root mean squared error
+    rmse = np.sqrt(mean_squared_error(labels, predictions))
+    
+    # Calculate mean absolute error
+    mae = mean_absolute_error(labels, predictions)
+    
+    return {
+        "rmse": rmse,
+        "mae": mae
+    }
 
 
 def load_movielens_data(data_path: str, train_ratio: float = 0.8) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
