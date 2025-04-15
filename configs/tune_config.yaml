@@ -1,0 +1,42 @@
+data:
+  path: "../data/movielens/ml-latest-small"
+  train_ratio: 0.8
+  validation_ratio: 0.1
+  min_user_ratings: 5
+  min_movie_ratings: 5
+
+model:
+  type: "NeuralCollaborativeFiltering"  # Options: MatrixFactorizationModel, NeuralCollaborativeFiltering, TransformerRecommender
+  
+tuning:
+  num_samples: 20  # Number of trials
+  resources_per_trial:
+    cpu: 1
+    gpu: 0.5  # Fraction of GPU per trial
+  
+parameter_space:
+  embedding_dim:
+    min: 16
+    max: 128
+  hidden_dims_0:
+    min: 64
+    max: 512
+  hidden_dims_1:
+    min: 32
+    max: 256
+  hidden_dims_2:
+    min: 16
+    max: 128
+  learning_rate:
+    min: 0.0001
+    max: 0.01
+    scaling: "log"
+  batch_size:
+    values: [64, 128, 256, 512]
+  
+mlflow:
+  experiment_name: "movie_recommender_tuning"
+  tracking_uri: "http://localhost:5000"  # Set to your MLflow server URI
+
+device: "cuda"  # Options: cuda, cpu
+```

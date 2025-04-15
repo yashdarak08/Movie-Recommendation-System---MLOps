@@ -1,10 +1,26 @@
-# Global dependencies (if any)
-mlflow==2.0.0
-ray[tune]==2.0.0
-ray[serve]==2.0.0
-ray[default]==2.0.0
-ray[all]==2.0.0
-ray[serve]==2.0.0
-ray[air]==2.0.0
-ray[train]==2.0.0
-ray[dataset]==2.0.0
+# Core ML dependencies
+torch==2.0.1
+numpy==1.24.3
+pandas==2.0.2
+scikit-learn==1.2.2
+
+# MLOps tools
+mlflow==2.4.1
+ray[tune]==2.4.0
+tensorboard==2.12.3
+optuna==3.2.0
+
+# Model serving
+fastapi==0.98.0
+uvicorn==0.22.0
+pydantic==1.10.9
+
+# Monitoring
+prometheus-client==0.17.0
+pyarrow==12.0.0
+
+# Utilities
+pyyaml==6.0
+tqdm==4.65.0
+matplotlib==3.7.1
+joblib==1.2.0

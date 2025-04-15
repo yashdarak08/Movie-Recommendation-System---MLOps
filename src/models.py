@@ -238,3 +238,4 @@ class TransformerRecommender(nn.Module):
         output = self.output_layer(transformer_out)
         
         return output
+    

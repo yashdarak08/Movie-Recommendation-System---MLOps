@@ -65,16 +65,24 @@ class RecommenderInference:
                     model_version = parts[-1]
                     
                     # Get run_id from which model was created
-                    model_version_info = client.get_model_version(model_name, model_version)
-                    run_id = model_version_info.run_id
+                    try:
+                        model_version_info = client.get_model_version(model_name, model_version)
+                        run_id = model_version_info.run_id
+                    except Exception as e:
+                        logger.warning(f"Could not get model version info: {e}")
+                        raise
                 else:
                     # Assuming format like "runs:/<run_id>/artifacts/model"
                     run_id = parts[1]
                 
                 # Download metadata from artifacts
-                artifact_path = client.download_artifacts(run_id, "metadata.json", ".")
-                self.metadata = load_model_metadata(artifact_path)
-                logger.info("Loaded model metadata from MLflow")
+                try:
+                    artifact_path = client.download_artifacts(run_id, "metadata.json", ".")
+                    self.metadata = load_model_metadata(artifact_path)
+                    logger.info("Loaded model metadata from MLflow")
+                except Exception as e:
+                    logger.warning(f"Could not download metadata artifact: {e}")
+                    raise
             except Exception as e:
                 logger.warning(f"Could not load metadata from MLflow: {e}")
                 self.metadata = {

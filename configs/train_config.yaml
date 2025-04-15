@@ -1,0 +1,25 @@
+data:
+  path: "../data/movielens/ml-latest-small"
+  train_ratio: 0.8
+  min_user_ratings: 5
+  min_movie_ratings: 5
+
+model:
+  type: "NeuralCollaborativeFiltering"  # Options: MatrixFactorizationModel, NeuralCollaborativeFiltering, TransformerRecommender
+  embedding_dim: 64
+  hidden_dims: [256, 128, 64]  # Only for NCF
+
+training:
+  batch_size: 256
+  learning_rate: 0.001
+  num_epochs: 20
+  weight_decay: 0.0001
+  optimizer: "adam"  # Options: adam, sgd
+  early_stopping_patience: 5
+  
+mlflow:
+  experiment_name: "movie_recommender_training"
+  tracking_uri: "http://localhost:5000"  # Set to your MLflow server URI
+  
+device: "cuda"  # Options: cuda, cpu
+```

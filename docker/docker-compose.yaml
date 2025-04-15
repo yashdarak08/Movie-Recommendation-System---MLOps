@@ -1,16 +1,25 @@
 version: '3'
 services:
   app:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
     volumes:
       - ../src:/app/src
+      - ../configs:/app/configs
+      - ../data:/app/data
     environment:
-      - PYTHONPATH=/app/src
-    command: python3 -m src.main
+      - PYTHONPATH=/app
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    command: python -m src.main --mode inference
     networks:
       - app-network
+    depends_on:
+      - db
+      - mlflow
+
   db:
     image: postgres:latest
     environment:
@@ -19,10 +28,57 @@ services:
       POSTGRES_DB: mydatabase
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ../infrastucture/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
     networks:
       - app-network
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    command: mlflow server --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts --host 0.0.0.0
+    networks:
+      - app-network
+
   redis:
     image: redis:latest
+    ports:
+      - "6379:6379"
     networks:
       - app-network
-      
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - app-network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  db_data:
+  mlflow_data:
+  grafana_data:

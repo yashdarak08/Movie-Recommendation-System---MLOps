@@ -2,6 +2,54 @@
 
 This repository implements a production-grade, cloud-native movie recommendation system with an end-to-end MLOps pipeline.
 
+```
+project-root/
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml
+├── configs/
+│   ├── train_config.yaml
+│   ├── tune_config.yaml
+│   └── infer_config.yaml
+├── data/
+│   ├── download_data.sh
+│   └── movielens/
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yaml
+├── infrastructure/
+│   ├── main.tf
+│   ├── variables.tf
+│   └── db/
+│       ├── init.sql
+│       └── init.sh
+├── k8s/
+│   ├── deployment.yaml
+│   ├── ingress.yaml
+│   ├── service.yaml
+│   ├── secrets.yaml
+│   └── pvc.yaml
+├── models/
+├── monitoring/
+│   ├── grafana_dashboard.json
+│   └── prometheus.yml
+├── src/
+│   ├── main.py
+│   ├── mlflow_tracking.py
+│   ├── models.py
+│   ├── train.py (you have this)
+│   ├── tune.py (you have this)
+│   ├── inference.py (you have this)
+│   ├── utils.py
+│   └── requirements.txt
+├── tests/
+├── .gitignore
+├── LICENSE
+├── readme.md
+├── requirements.txt
+└── setup-directories.sh
+```
+
 ## Key Features
 - **MLFlow** for experiment tracking and model versioning.
 - **Terraform** for AWS EC2 infrastructure provisioning.

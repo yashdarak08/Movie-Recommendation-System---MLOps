@@ -1,324 +1,276 @@
+"""
+Hyperparameter tuning for movie recommendation models using Ray Tune.
+"""
+
 import os
-import argparse
 import logging
-import yaml
-import torch
+import time
+from functools import partial
+from typing import Dict, List, Any, Optional, Tuple, Callable
+
 import numpy as np
-import mlflow
-import json
-from typing import Dict, Any
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
 
 import ray
 from ray import tune
-from ray.tune.integration.mlflow import MLflowLoggerCallback
+from ray.air import session
 from ray.tune.schedulers import ASHAScheduler
-from ray.tune.search.hyperopt import HyperOptSearch
+from ray.air.config import ScalingConfig
 
-from utils import setup_logger, load_movielens_data
-from models import MatrixFactorizationModel, NeuralCollaborativeFiltering
-from train import MovieLensDataset, train_epoch, evaluate
+from models import get_model
+from train import MovieRecTrainer
+from utils import set_seed
+from mlflow_tracking import MLFlowTracker
 
-logger = setup_logger(__name__)
 
-def train_with_params(config: Dict[str, Any], checkpoint_dir=None):
+class MovieRecTuner:
     """
-    Training function for Ray Tune hyperparameter optimization.
-    This is called for each trial with different hyperparameters.
-    
-    Args:
-        config: Hyperparameter configuration for this trial
-        checkpoint_dir: Directory for checkpoints
+    Tuner for movie recommendation models.
     """
-    # Set random seeds for reproducibility
-    torch.manual_seed(config['random_seed'])
-    np.random.seed(config['random_seed'])
     
-    # Load data
-    data_path = config.get('data_path', os.path.join("..", "data", "movielens", "ml-latest-small"))
-    _, train_data, test_data = load_movielens_data(
-        data_path=data_path,
-        train_ratio=config.get('train_test_split', 0.8)
-    )
-    
-    # Create datasets
-    train_dataset = MovieLensDataset(train_data)
-    val_dataset = MovieLensDataset(
-        test_data, 
-        user_mapping=train_dataset.user_mapping,
-        item_mapping=train_dataset.item_mapping,
-        train=False
-    )
-    
-    metadata = train_dataset.get_metadata()
-    num_users = metadata['num_users']
-    num_items = metadata['num_items']
-    
-    # Create data loaders
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, 
-        batch_size=config['batch_size'], 
-        shuffle=True,
-        num_workers=2
-    )
-    
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset,
-        batch_size=config['batch_size'],
-        shuffle=False,
-        num_workers=2
-    )
-    
-    # Initialize model based on configuration
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    if config['model_type'] == 'mf':
-        model = MatrixFactorizationModel(
-            num_users=num_users,
-            num_items=num_items,
-            embedding_dim=config['embedding_dim']
-        )
-    else:  # 'ncf'
-        model = NeuralCollaborativeFiltering(
-            num_users=num_users,
-            num_items=num_items,
-            embedding_dim=config['embedding_dim'],
-            hidden_dims=config['hidden_dims']
-        )
-    
-    model = model.to(device)
-    
-    # Initialize loss and optimizer
-    criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(
-        model.parameters(), 
-        lr=config['learning_rate'],
-        weight_decay=config['weight_decay']
-    )
-    
-    # Load checkpoint if available
-    if checkpoint_dir:
-        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint.pt")
-        model_state, optimizer_state = torch.load(checkpoint_path)
-        model.load_state_dict(model_state)
-        optimizer.load_state_dict(optimizer_state)
-    
-    # Training loop for hyperparameter search
-    max_epochs = config.get('num_epochs', 10)
-    best_val_rmse = float('inf')
-    
-    for epoch in range(max_epochs):
-        # Train
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+    def __init__(self, config: Dict[str, Any], mlflow_tracker: Optional[MLFlowTracker] = None):
+        """
+        Initialize MovieRecTuner.
         
-        # Evaluate
-        val_metrics = evaluate(model, val_loader, criterion, device)
-        val_rmse = val_metrics['val_rmse']
+        Args:
+            config: Configuration dictionary
+            mlflow_tracker: MLFlow tracker instance for experiment tracking
+        """
+        self.config = config
+        self.mlflow_tracker = mlflow_tracker
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Save checkpoint
+        # Set random seed for reproducibility
+        set_seed(config.get("seed", 42))
+        
+        logging.info(f"Hyperparameter tuning will run on: {self.device}")
+    
+    def train_function(self, config: Dict[str, Any], 
+                      data_config: Dict[str, Any], 
+                      checkpoint_dir: Optional[str] = None) -> None:
+        """
+        Training function for Ray Tune.
+        
+        Args:
+            config: Hyperparameter configuration from Ray Tune
+            data_config: Data configuration
+            checkpoint_dir: Checkpoint directory
+        """
+        # Create trainer with combined config
+        combined_config = {
+            **data_config,
+            "model": {
+                "num_users": data_config["num_users"],
+                "num_items": data_config["num_items"],
+                **config
+            },
+            "batch_size": config.get("batch_size", 256),
+            "learning_rate": config.get("learning_rate", 0.001),
+            "weight_decay": config.get("weight_decay", 0.0),
+            "num_epochs": 1  # Train for one epoch at a time for Ray Tune
+        }
+        
+        trainer = MovieRecTrainer(combined_config)
+        
+        # Resume from checkpoint if available
+        start_epoch = 0
         if checkpoint_dir:
             checkpoint_path = os.path.join(checkpoint_dir, "checkpoint.pt")
-            torch.save(
-                (model.state_dict(), optimizer.state_dict()),
-                checkpoint_path
-            )
+            checkpoint = torch.load(checkpoint_path)
+            trainer.model.load_state_dict(checkpoint["model_state_dict"])
+            start_epoch = checkpoint["epoch"]
+        
+        # Load data
+        data, data_info = trainer.load_data()
+        dataloaders = trainer.create_dataloaders(data)
+        
+        # Initialize model
+        model_type = data_config.get("model_type", "mf")
+        model = get_model(model_type, combined_config["model"])
+        model.to(self.device)
+        
+        # Set up optimizer and loss function
+        optimizer = optim.Adam(
+            model.parameters(), 
+            lr=config["learning_rate"],
+            weight_decay=config.get("weight_decay", 0.0)
+        )
+        criterion = nn.MSELoss()
+        
+        # Train for one epoch
+        train_metrics = trainer.train_epoch(model, dataloaders["train"], optimizer, criterion)
+        
+        # Evaluate
+        val_metrics = trainer.evaluate(model, dataloaders["val"], criterion)
+        
+        # Save checkpoint
+        checkpoint_path = os.path.join(tune.get_trial_dir(), "checkpoint.pt")
+        torch.save({
+            "epoch": start_epoch + 1,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": val_metrics["loss"],
+            "val_rmse": val_metrics["rmse"]
+        }, checkpoint_path)
         
         # Report metrics to Ray Tune
-        tune.report(
-            epoch=epoch,
-            train_loss=train_loss,
-            val_rmse=val_rmse
+        session.report({
+            "train_loss": train_metrics["loss"],
+            "train_rmse": train_metrics["rmse"],
+            "val_loss": val_metrics["loss"],
+            "val_rmse": val_metrics["rmse"],
+            "val_mae": val_metrics["mae"]
+        }, checkpoint=checkpoint_path)
+    
+    def get_search_space(self) -> Dict[str, Any]:
+        """
+        Get the search space for hyperparameter tuning.
+        
+        Returns:
+            Search space dictionary
+        """
+        model_type = self.config.get("model_type", "mf")
+        
+        if model_type == "mf":
+            return {
+                "embedding_dim": tune.choice([32, 64, 100, 128, 256]),
+                "learning_rate": tune.loguniform(1e-4, 1e-2),
+                "weight_decay": tune.loguniform(1e-6, 1e-3),
+                "batch_size": tune.choice([64, 128, 256, 512])
+            }
+        elif model_type == "ncf":
+            return {
+                "mf_embedding_dim": tune.choice([16, 32, 64]),
+                "mlp_embedding_dim": tune.choice([16, 32, 64]),
+                "mlp_layers": tune.choice([
+                    [128, 64, 32],
+                    [256, 128, 64],
+                    [128, 64],
+                    [256, 128]
+                ]),
+                "dropout_rate": tune.uniform(0.1, 0.5),
+                "learning_rate": tune.loguniform(1e-4, 1e-2),
+                "weight_decay": tune.loguniform(1e-6, 1e-3),
+                "batch_size": tune.choice([64, 128, 256, 512])
+            }
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+    
+    def tune(self) -> Dict[str, Any]:
+        """
+        Run hyperparameter tuning.
+        
+        Returns:
+            Dictionary containing best trial results and model
+        """
+        # Load data to get data_info
+        trainer = MovieRecTrainer(self.config)
+        data, data_info = trainer.load_data()
+        
+        # Create data config
+        data_config = {
+            "data_path": self.config.get("data_path", "data/movielens/ml-latest-small"),
+            "num_users": data_info["num_users"],
+            "num_items": data_info["num_items"],
+            "model_type": self.config.get("model_type", "mf")
+        }
+        
+        # Initialize Ray
+        if not ray.is_initialized():
+            ray.init(num_cpus=self.config.get("num_cpus", 4), num_gpus=self.config.get("num_gpus", 0))
+        
+        # Set up search space
+        search_space = self.get_search_space()
+        
+        # Set up ASHA scheduler
+        scheduler = ASHAScheduler(
+            max_t=self.config.get("max_epochs", 10),
+            grace_period=self.config.get("grace_period", 2),
+            reduction_factor=self.config.get("reduction_factor", 2)
         )
         
-        # Track best validation RMSE for reporting
-        if val_rmse < best_val_rmse:
-            best_val_rmse = val_rmse
-
-def run_tuning(config: Dict[str, Any] = None):
-    """
-    Run hyperparameter tuning using Ray Tune.
-    
-    Args:
-        config: Base configuration for tuning
-    """
-    if config is None:
-        config = {
-            'experiment_name': 'movie_recommender_hyperparams',
-            'num_samples': 10,  # Number of trials to run
-            'max_epochs': 10,   # Maximum epochs per trial
-            'resources_per_trial': {
-                'cpu': 2,
-                'gpu': 0.5  # Fractional GPUs supported by Ray
-            },
-            'data_path': os.path.join("..", "data", "movielens", "ml-latest-small"),
-            'output_path': 'ray_results',
-            'model_type': 'ncf',
-            'search_space': {
-                'batch_size': [128, 256, 512, 1024],
-                'learning_rate': [1e-4, 3e-4, 1e-3, 3e-3],
-                'embedding_dim': [32, 64, 128],
-                'hidden_dims': [
-                    [128, 64],
-                    [256, 128, 64],
-                    [512, 256, 128]
-                ],
-                'weight_decay': [0, 1e-5, 1e-4]
-            }
-        }
-    
-    # Initialize MLflow for tracking
-    mlflow.set_experiment(config['experiment_name'])
-    
-    # Initialize Ray
-    ray.init(
-        num_cpus=config.get('num_cpus', None),
-        num_gpus=config.get('num_gpus', None),
-        log_to_driver=False
-    )
-    
-    logger.info("Starting hyperparameter tuning with Ray Tune...")
-    
-    # Create search space for HyperOpt
-    search_space = {}
-    
-    for param, values in config['search_space'].items():
-        if param == 'hidden_dims':
-            # For nested parameters like hidden_dims, we use a categorical choice
-            search_space[param] = tune.choice(values)
-        elif isinstance(values, list):
-            search_space[param] = tune.choice(values)
-        else:
-            # If a range is specified instead of discrete values
-            search_space[param] = tune.uniform(values[0], values[1])
-    
-    # Add fixed parameters to search space
-    fixed_params = {
-        'model_type': config['model_type'],
-        'data_path': config['data_path'],
-        'train_test_split': 0.8,
-        'num_epochs': config['max_epochs'],
-        'random_seed': 42
-    }
-    
-    search_space.update(fixed_params)
-    
-    # Set up HyperOpt search algorithm
-    search_algo = HyperOptSearch(
-        metric="val_rmse",
-        mode="min",
-        points_to_evaluate=[{
-            'model_type': config['model_type'],
-            'batch_size': 256,
-            'learning_rate': 1e-3,
-            'embedding_dim': 64,
-            'hidden_dims': [256, 128, 64],
-            'weight_decay': 1e-5,
-            'data_path': config['data_path'],
-            'train_test_split': 0.8,
-            'num_epochs': config['max_epochs'],
-            'random_seed': 42
-        }]  # Start with reasonable defaults
-    )
-    
-    # Set up ASHA scheduler for early stopping of bad trials
-    scheduler = ASHAScheduler(
-        max_t=config['max_epochs'],
-        grace_period=2,
-        reduction_factor=2
-    )
-    
-    # Set up MLflow logger for Ray Tune
-    mlflow_callback = MLflowLoggerCallback(
-        experiment_name=config['experiment_name'],
-        save_artifact=True
-    )
-    
-    # Run hyperparameter tuning
-    analysis = tune.run(
-        train_with_params,
-        config=search_space,
-        search_alg=search_algo,
-        scheduler=scheduler,
-        num_samples=config['num_samples'],
-        resources_per_trial=config['resources_per_trial'],
-        checkpoint_at_end=True,
-        local_dir=config['output_path'],
-        callbacks=[mlflow_callback],
-        verbose=1,
-        progress_reporter=tune.CLIReporter(
-            metric_columns=["train_loss", "val_rmse", "epoch"]
+        # Start MLFlow run
+        if self.mlflow_tracker is not None:
+            self.mlflow_tracker.start_run(run_name=f"{data_config['model_type']}-tuning")
+            self.mlflow_tracker.log_params({
+                "model_type": data_config["model_type"],
+                "num_users": data_info["num_users"],
+                "num_items": data_info["num_items"],
+                "num_trials": self.config.get("num_trials", 10),
+                "max_epochs": self.config.get("max_epochs", 10)
+            })
+        
+        # Run tuning
+        tuner = tune.Tuner(
+            tune.with_resources(
+                tune.with_parameters(self.train_function, data_config=data_config),
+                resources={"cpu": 1, "gpu": 0.5 if torch.cuda.is_available() else 0}
+            ),
+            tune_config=tune.TuneConfig(
+                metric="val_rmse",
+                mode="min",
+                scheduler=scheduler,
+                num_samples=self.config.get("num_trials", 10)
+            ),
+            param_space=search_space,
+            run_config=ray.air.RunConfig(
+                name=f"{data_config['model_type']}_tuning",
+                local_dir=self.config.get("output_dir", "ray_results"),
+                stop={"training_iteration": self.config.get("max_epochs", 10)}
+            )
         )
-    )
-    
-    # Get best trial
-    best_trial = analysis.get_best_trial("val_rmse", "min", "last")
-    best_config = best_trial.config
-    best_rmse = best_trial.last_result["val_rmse"]
-    
-    logger.info(f"Best trial config: {best_config}")
-    logger.info(f"Best trial final validation RMSE: {best_rmse}")
-    
-    # Save best configuration
-    output_file = os.path.join(config['output_path'], "best_config.json")
-    with open(output_file, 'w') as f:
-        json.dump(best_config, f, indent=2)
-    
-    logger.info(f"Best configuration saved to {output_file}")
-    
-    # Log best configuration to MLflow
-    with mlflow.start_run(run_name="tuning_summary"):
-        mlflow.log_params(best_config)
-        mlflow.log_metrics({"best_val_rmse": best_rmse})
-        mlflow.log_artifact(output_file)
-    
-    # Shut down Ray
-    ray.shutdown()
-    
-    return best_config
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run hyperparameter tuning")
-    parser.add_argument("--config", type=str, help="Path to config YAML file")
-    parser.add_argument("--num_samples", type=int, default=10, help="Number of trials to run")
-    parser.add_argument("--max_epochs", type=int, default=10, help="Maximum epochs per trial")
-    parser.add_argument("--model_type", type=str, choices=["mf", "ncf"], default="ncf", 
-                        help="Model type: Matrix Factorization (mf) or Neural CF (ncf)")
-    parser.add_argument("--output_path", type=str, default="ray_results", 
-                        help="Path to save tuning results")
-    
-    args = parser.parse_args()
-    
-    if args.config:
-        # Load configuration from YAML file
-        with open(args.config, 'r') as f:
-            config = yaml.safe_load(f)
-    else:
-        # Use default configuration with CLI overrides
-        config = {
-            'experiment_name': 'movie_recommender_hyperparams',
-            'num_samples': args.num_samples,
-            'max_epochs': args.max_epochs,
-            'resources_per_trial': {
-                'cpu': 2,
-                'gpu': 0.5  # Fractional GPUs supported by Ray
+        
+        # Execute tuning
+        logging.info("Starting hyperparameter tuning...")
+        start_time = time.time()
+        results = tuner.fit()
+        total_time = time.time() - start_time
+        
+        # Get best trial
+        best_trial = results.get_best_result(metric="val_rmse", mode="min")
+        best_config = best_trial.config
+        best_val_rmse = best_trial.metrics["val_rmse"]
+        best_checkpoint = best_trial.checkpoint
+        
+        logging.info(f"Hyperparameter tuning completed in {total_time:.2f} seconds")
+        logging.info(f"Best trial config: {best_config}")
+        logging.info(f"Best val RMSE: {best_val_rmse:.4f}")
+        
+        # Train final model with best hyperparameters
+        final_config = {
+            **self.config,
+            "model": {
+                "num_users": data_info["num_users"],
+                "num_items": data_info["num_items"],
+                **{k: v for k, v in best_config.items() if k not in ["learning_rate", "weight_decay", "batch_size"]}
             },
-            'data_path': os.path.join("..", "data", "movielens", "ml-latest-small"),
-            'output_path': args.output_path,
-            'model_type': args.model_type,
-            'search_space': {
-                'batch_size': [128, 256, 512, 1024],
-                'learning_rate': [1e-4, 3e-4, 1e-3, 3e-3],
-                'embedding_dim': [32, 64, 128],
-                'hidden_dims': [
-                    [128, 64],
-                    [256, 128, 64],
-                    [512, 256, 128]
-                ],
-                'weight_decay': [0, 1e-5, 1e-4]
-            }
+            "learning_rate": best_config["learning_rate"],
+            "weight_decay": best_config.get("weight_decay", 0.0),
+            "batch_size": best_config["batch_size"]
         }
-    
-    # Run hyperparameter tuning
-    best_config = run_tuning(config)
-    
-    logger.info("Hyperparameter tuning completed successfully.")
+        
+        # Log best hyperparameters to MLFlow
+        if self.mlflow_tracker is not None:
+            self.mlflow_tracker.log_params({
+                **{f"best_{k}": v for k, v in best_config.items()},
+                "best_val_rmse": best_val_rmse,
+                "tuning_time": total_time
+            })
+            self.mlflow_tracker.end_run()
+        
+        # Train final model with best hyperparameters
+        logging.info("Training final model with best hyperparameters...")
+        final_trainer = MovieRecTrainer(final_config, self.mlflow_tracker)
+        final_results = final_trainer.train()
+        
+        return {
+            "best_config": best_config,
+            "best_val_rmse": best_val_rmse,
+            "final_model": final_results["model"],
+            "final_model_path": final_results["model_path"],
+            "final_test_metrics": final_results["test_metrics"],
+            "data_info": data_info
+        }
